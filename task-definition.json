@@ -1,0 +1,21 @@
+[
+    {
+        "essential": true,
+        "image": "${image_url}",
+        "name": "${container_name}",
+        "portMappings": [
+            {
+            "containerPort": 8000,
+            "hostPort": 8000
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "${log_group_name}",
+                "awslogs-region": "${log_group_region}",
+                "awslogs-stream-prefix": "${log_group_prefix}"
+            }
+        }
+    }
+]
