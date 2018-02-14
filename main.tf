@@ -4,18 +4,25 @@ provider "aws" {
   region     = "${var.aws_region}"
 }
 
+
+
+
+##################################
 ### Network
+##################################
 
 data "aws_availability_zones" "available" {}
 
+# Create new VPC
 resource "aws_vpc" "main" {
   cidr_block = "${var.vpc_cidr}"
   enable_dns_hostnames = true
   tags {
-      Name = "example-vpc"
+      Name = "whoami-vpc"
   }
 }
 
+# Create an internet gateway for internet access
 resource "aws_internet_gateway" "gw" {
   vpc_id = "${aws_vpc.main.id}"
 }
@@ -26,9 +33,12 @@ resource "aws_subnet" "main" {
   cidr_block        = "${cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)}"
   availability_zone = "${data.aws_availability_zones.available.names[count.index]}"
   vpc_id            = "${aws_vpc.main.id}"
+  tags = {
+    Name =  "Private Subnet - whoami${count.index}"
+  }
 }
 
-# Create public subnet to host NAT gateway
+# Create a public subnet for each private subnet to host the nat gateways and ELB
 resource "aws_subnet" "gw_subnet" {
   count                   = "${var.az_count}"
   cidr_block              = "${cidrsubnet(aws_vpc.main.cidr_block, 8, var.az_count+count.index)}"
@@ -36,21 +46,23 @@ resource "aws_subnet" "gw_subnet" {
   availability_zone       = "${data.aws_availability_zones.available.names[count.index]}"
   vpc_id                  = "${aws_vpc.main.id}"
   tags = {
-    Name =  "Public Subnet"
+    Name =  "Public Subnet - whoami${count.index}"
   }
 }
 
 
-/* Elastic IP for NAT */
+# Create Elastic IPs for NAT gateways
 resource "aws_eip" "nat_eip" {
-  vpc        = true
-  depends_on    = ["aws_internet_gateway.gw"]
+  count       = "${var.az_count}"
+  vpc         = true
+  depends_on  = ["aws_internet_gateway.gw"]
 }
 
-/* NAT */
+# Create a NAT gateway in every public subnet
 resource "aws_nat_gateway" "nat" {
-  allocation_id = "${aws_eip.nat_eip.id}"
-  subnet_id     = "${element(aws_subnet.gw_subnet.*.id, 0)}"
+  count         = "${var.az_count}"
+  allocation_id = "${element(aws_eip.nat_eip.*.id, count.index)}"
+  subnet_id     = "${element(aws_subnet.gw_subnet.*.id, count.index)}"
   depends_on    = ["aws_internet_gateway.gw"]
 }
 
@@ -61,44 +73,41 @@ resource "aws_route" "internet_access" {
   gateway_id             = "${aws_internet_gateway.gw.id}"
 }
 
-# Create the private route table
+# Create the private routing tables for all private subnets
 resource "aws_route_table" "private_route_table" {
-    vpc_id = "${aws_vpc.main.id}"
-
-    tags {
-        Name = "Private route table"
-    }
+  count   = "${var.az_count}"
+  vpc_id  = "${aws_vpc.main.id}"
+  tags {
+      Name = "Private route table ${count.index}"
+  }
 }
 
-# Create private route
+# Create private routes to nat gateway
 resource "aws_route" "private_route" {
-  route_table_id  = "${aws_route_table.private_route_table.id}"
+  count          = "${var.az_count}"
+  route_table_id  = "${element(aws_route_table.private_route_table.*.id, count.index)}"
   destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id = "${aws_nat_gateway.nat.id}"
+  nat_gateway_id = "${element(aws_nat_gateway.nat.*.id, count.index)}"
 }
 
-# Associate gw subnet public route table
+# Associate main VPC routing table to every public subnet
 resource "aws_route_table_association" "gw_subnet_association" {
-    subnet_id = "${element(aws_subnet.gw_subnet.*.id, 0)}"
+    count          = "${var.az_count}"
+    subnet_id      = "${element(aws_subnet.gw_subnet.*.id, count.index)}"
     route_table_id = "${aws_vpc.main.main_route_table_id}"
 }
 
-# resource "aws_route_table" "r" {
-#   vpc_id = "${aws_vpc.main.id}"
-
-#   route {
-#     cidr_block = "0.0.0.0/0"
-#     gateway_id = "${aws_internet_gateway.gw.id}"
-#   }
-# }
-
+# Associate private routing table to every private subnet
 resource "aws_route_table_association" "a" {
   count          = "${var.az_count}"
   subnet_id      = "${element(aws_subnet.main.*.id, count.index)}"
-  route_table_id = "${aws_route_table.private_route_table.id}"
+  route_table_id = "${element(aws_route_table.private_route_table.*.id, count.index)}"
 }
 
+
+##################################
 ### Security Groups
+##################################
 
 resource "aws_security_group" "lb_sg" {
   description = "controls access to the application ELB"
@@ -179,7 +188,7 @@ resource "aws_security_group" "ecs_service" {
 ## ECS
 
 resource "aws_ecs_cluster" "main" {
-  name = "terraform_example_ecs_cluster"
+  name = "terraform_whoami_ecs_cluster"
 }
 
 data "template_file" "task_definition" {
@@ -206,7 +215,7 @@ resource "aws_ecs_task_definition" "whoami" {
 }
 
 resource "aws_ecs_service" "test" {
-  name            = "tf-example-ecs-whoami"
+  name            = "tf-whoami-ecs-whoami"
   cluster         = "${aws_ecs_cluster.main.id}"
   task_definition = "${aws_ecs_task_definition.whoami.arn}"
   desired_count   = 3
@@ -233,7 +242,7 @@ resource "aws_ecs_service" "test" {
 ## IAM
 
 resource "aws_iam_role" "ecs_service" {
-  name = "tf_example_ecs_role"
+  name = "tf_whoami_ecs_role"
 
   assume_role_policy = <<EOF
 {
@@ -253,7 +262,7 @@ EOF
 }
 
 resource "aws_iam_role_policy" "ecs_service" {
-  name = "tf_example_ecs_policy"
+  name = "tf_whoami_ecs_policy"
   role = "${aws_iam_role.ecs_service.name}"
 
   policy = <<EOF
@@ -283,7 +292,7 @@ resource "aws_iam_instance_profile" "app" {
 }
 
 resource "aws_iam_role" "app_instance" {
-  name = "tf-ecs-example-instance-role"
+  name = "tf-ecs-whoami-instance-role"
 
   assume_role_policy = <<EOF
 {
@@ -312,7 +321,7 @@ data "template_file" "instance_profile" {
 }
 
 resource "aws_iam_role_policy" "instance" {
-  name   = "TfEcsExampleInstanceRole"
+  name   = "TfEcswhoamiInstanceRole"
   role   = "${aws_iam_role.app_instance.name}"
   policy = "${data.template_file.instance_profile.rendered}"
 }
@@ -375,7 +384,7 @@ resource "aws_iam_role_policy" "ecs_execution_role_policy" {
 ## ALB
 
 resource "aws_alb_target_group" "test" {
-  name     = "tf-example-ecs-whoami"
+  name     = "tf-whoami-ecs-whoami"
   port     = 8000
   protocol = "HTTP"
   vpc_id   = "${aws_vpc.main.id}"
@@ -387,7 +396,7 @@ resource "aws_alb_target_group" "test" {
 }
 
 resource "aws_alb" "main" {
-  name            = "tf-example-alb-ecs"
+  name            = "tf-whoami-alb-ecs"
   subnets         = ["${aws_subnet.gw_subnet.*.id}"]
   security_groups = ["${aws_security_group.lb_sg.id}"]
 }
