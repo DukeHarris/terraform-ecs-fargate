@@ -30,10 +30,11 @@ resource "aws_subnet" "main" {
 
 # Create public subnet to host NAT gateway
 resource "aws_subnet" "gw_subnet" {
-  vpc_id                  = "${aws_vpc.main.id}"
-  cidr_block              = "${cidrsubnet(aws_vpc.main.cidr_block, 8, var.az_count+1)}"
+  count                   = "${var.az_count}"
+  cidr_block              = "${cidrsubnet(aws_vpc.main.cidr_block, 8, var.az_count+count.index)}"
   map_public_ip_on_launch = true
-  availability_zone = "${data.aws_availability_zones.available.names[var.az_count+1]}"
+  availability_zone       = "${data.aws_availability_zones.available.names[count.index]}"
+  vpc_id                  = "${aws_vpc.main.id}"
   tags = {
     Name =  "Public Subnet"
   }
@@ -49,7 +50,7 @@ resource "aws_eip" "nat_eip" {
 /* NAT */
 resource "aws_nat_gateway" "nat" {
   allocation_id = "${aws_eip.nat_eip.id}"
-  subnet_id     = "${aws_subnet.gw_subnet.id}"
+  subnet_id     = "${element(aws_subnet.gw_subnet.*.id, 0)}"
   depends_on    = ["aws_internet_gateway.gw"]
 }
 
@@ -78,7 +79,7 @@ resource "aws_route" "private_route" {
 
 # Associate gw subnet public route table
 resource "aws_route_table_association" "gw_subnet_association" {
-    subnet_id = "${aws_subnet.gw_subnet.id}"
+    subnet_id = "${element(aws_subnet.gw_subnet.*.id, 0)}"
     route_table_id = "${aws_vpc.main.main_route_table_id}"
 }
 
@@ -163,6 +164,13 @@ resource "aws_security_group" "ecs_service" {
     from_port   = 8
     to_port     = 0
     protocol    = "icmp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
@@ -380,7 +388,7 @@ resource "aws_alb_target_group" "test" {
 
 resource "aws_alb" "main" {
   name            = "tf-example-alb-ecs"
-  subnets         = ["${aws_subnet.main.*.id}"]
+  subnets         = ["${aws_subnet.gw_subnet.*.id}"]
   security_groups = ["${aws_security_group.lb_sg.id}"]
 }
 
