@@ -1,10 +1,10 @@
-Example project to deploy an AWS ECS cluster using terraform.
+Example project to deploy an AWS [ECS](https://aws.amazon.com/ecs/) cluster using [terraform](https://www.terraform.io/).
 
-I created this project as an exercise to familiarize myself with AWS Fargate and terraform.
+I created this project as an exercise to familiarize myself with AWS [Fargate](https://aws.amazon.com/fargate/) and terraform.
 
 ## Description
 
-The scripts will create a new VPC and deploy a configurable number of (jwilder's whoami)[https://github.com/jwilder/whoami] service in multiple availability zones.
+The scripts will create a new VPC and deploy a configurable number of [jwilder's whoami](https://github.com/jwilder/whoami) service in multiple availability zones.
 The service simply prints the container ID when accessed via HTTP which makes it easy to verify the origin of a response when using a load balancer.
 The containers run in an ECS cluster using Fargate.
 For each availability zone we create a private subnet in which the ECS task can run, and a public subnet containing a NAT gateway for internet access.
