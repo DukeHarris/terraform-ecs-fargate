@@ -5,8 +5,6 @@ provider "aws" {
 }
 
 
-
-
 ##################################
 ### Network
 ##################################
@@ -133,34 +131,11 @@ resource "aws_security_group" "lb_sg" {
   }
 }
 
-resource "aws_security_group" "instance_sg" {
-  description = "controls direct access to application instances"
-  vpc_id      = "${aws_vpc.main.id}"
-  name        = "tf-ecs-instsg"
-
-  ingress {
-    protocol  = "tcp"
-    from_port = 8000
-    to_port   = 8000
-
-    security_groups = [
-      "${aws_security_group.lb_sg.id}",
-    ]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
 /* Security Group for ECS */
 resource "aws_security_group" "ecs_service" {
   vpc_id      = "${aws_vpc.main.id}"
   name        = "tf-ecs-service-sg"
-  description = "Allow egress from container"
+  description = "Allows access to container"
 
   egress {
     from_port   = 0
@@ -185,7 +160,9 @@ resource "aws_security_group" "ecs_service" {
 
 }
 
+##################################
 ## ECS
+##################################
 
 resource "aws_ecs_cluster" "main" {
   name = "terraform_whoami_ecs_cluster"
@@ -220,7 +197,6 @@ resource "aws_ecs_service" "test" {
   task_definition = "${aws_ecs_task_definition.whoami.arn}"
   desired_count   = 3
   launch_type     = "FARGATE"
-  # iam_role        = "${aws_iam_role.ecs_service.name}"
 
   load_balancer {
     target_group_arn = "${aws_alb_target_group.test.id}"
@@ -239,7 +215,9 @@ resource "aws_ecs_service" "test" {
   ]
 }
 
+##################################
 ## IAM
+##################################
 
 resource "aws_iam_role" "ecs_service" {
   name = "tf_whoami_ecs_role"
@@ -363,7 +341,6 @@ data "aws_iam_policy_document" "ecs_service_policy" {
 /* ecs service scheduler role */
 resource "aws_iam_role_policy" "ecs_service_role_policy" {
   name   = "ecs_service_role_policy"
-  #policy = "${file("${path.module}/policies/ecs-service-role.json")}"
   policy = "${data.aws_iam_policy_document.ecs_service_policy.json}"
   role   = "${aws_iam_role.ecs_role.id}"
 }
@@ -373,6 +350,7 @@ resource "aws_iam_role" "ecs_execution_role" {
   name               = "ecs_task_execution_role"
   assume_role_policy = "${file("${path.module}/policies/ecs-task-execution-role.json")}"
 }
+
 resource "aws_iam_role_policy" "ecs_execution_role_policy" {
   name   = "ecs_execution_role_policy"
   policy = "${file("${path.module}/policies/ecs-execution-role-policy.json")}"
@@ -381,7 +359,9 @@ resource "aws_iam_role_policy" "ecs_execution_role_policy" {
 
 
 
-## ALB
+##################################
+## Application Load Balancer
+##################################
 
 resource "aws_alb_target_group" "test" {
   name     = "tf-whoami-ecs-whoami"
@@ -412,7 +392,9 @@ resource "aws_alb_listener" "front_end" {
   }
 }
 
+##################################
 ## CloudWatch Logs
+##################################
 
 resource "aws_cloudwatch_log_group" "ecs" {
   name = "tf-ecs-group/ecs-agent"
